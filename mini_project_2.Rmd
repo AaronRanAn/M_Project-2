@@ -1,0 +1,151 @@
+---
+title: "Simulation Mini Project"
+author: "Aaron"
+date: "July 19, 2016"
+output: 
+  html_document: 
+    highlight: haddock
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Synopsis
+
+The owner of a very popular local sandwich shop (“Sandwich Joe”) has asked you to help them improve their shop operations. They want to improve the customer wait time from **17+ minutes** at peak lunch hour.  They also want to improve the moral of their sandwich makers, who are complaining of being overworked during lunch rush.
+
+### Methods
+
+#### M/M/1 Queques
+
+The M/M/1 comes from the definition of the system as composed of an arrival process, which is Markovian (M), a service time distribution (M), which is again Markovian, and a single server.
+
+#### Why use Poisson Distribution for arrival modeling
+
+The Poisson distribution is a good distribution to employ in this case because each customer arriving at the checkout is independent of other customers. Observe that more customers enter the shop during lunch break. This implies that the customers are not exactly independent over the course of a day. However, if we constrain our model to just the lunch hour (e.g. from 11-1) we still obey the constraints of the Poisson distribution. We use Poisson distribution to model customer arrival time here. 
+
+#### `simmer` 
+
+Simmer is a type of simulator known as a Discrete Event Simulator (DES) (see the lecture notes for other types). It designed to be a framework for building and exploring simulation. 
+
+> According to instruction, I plan to add an order taker and a cashier to the existing sandwich maker to decrease both the waiting time and ultilization of sandwitch maker. 
+
+---------------------
+
+### Analysis
+
+```{r message = F, warning = F}
+
+library(simmer); library(dplyr);  library(ggplot2); library(magrittr); library(gridExtra);
+
+```
+
+Set two trajectory, `t1` is the trajectory before adding order_taker and sandwich maker. `t0` is the trajectory after adding those two new resources. As we are specifically told to: (in the project brief)
+
+> You are to take the simulation supplement, add a `order_taker`, and a `cashier` and report the results of sandwich_maker utilization and customer wait time. 
+
+```{r}
+
+t1 <- create_trajectory("sandwich shop 1") %>%
+  seize("sandwich_maker", 1) %>%
+  timeout(function() rnorm(1, 5)) %>%
+  release("sandwich_maker", 1)
+
+```
+
+
+```{r}
+
+t0 <- create_trajectory("sandwich shop 0") %>%
+    
+    seize("order_taker", 1) %>% # order_taker take 1 customer at a time
+    timeout(function() rnorm(1,2)) %>% # he takes 1 to 2 mins to take an order
+    release("order_taker") %>% # no gap time between taking order 
+        
+    seize("sandwich_maker", 1) %>%  # sanwich_maker serve 1 customer at a time
+    timeout(function() rnorm(1, 3)) %>% # he takes 1 to 3 mins to make a sandwich
+    release("sandwich_maker", 1) %>% # sanwich making process cool down a few mins 
+    
+    seize("cashier", 1) %>%
+    timeout(function() rnorm(1,2)) %>%
+    release("cashier")
+
+```
+
+Run simulation for both trajectories for 120 time unit and 200 times. 
+
+```{r}
+
+env1 <- lapply(1:200, function(i) {
+  simmer("Sandwich Joe 1") %>%
+  add_resource("sandwich_maker", 1) %>%
+  add_generator("customer", t1, function() rpois(1, 2)) %>%
+  # limit run to 120 time units!
+  run(120)
+})
+
+```
+
+
+```{r}
+
+env0 <- lapply(1:200, function(i) {
+    
+    simmer("Sandwich Joe 0") %>%
+    add_resource("order_taker", 1) %>%
+    add_resource("sandwich_maker", 3) %>% # notice a sandwich maker can make 3 at a time!
+    add_resource("cashier", 1) %>%
+    add_generator("customer", t0, function() rpois(1, 2)) %>%
+    # limit run to 120 time units!
+    run(120)
+    
+})
+
+```
+
+Compare the sandwich_maker ultilization before and after:
+
+```{r}
+
+box1 <- plot_resource_utilization(env1, c("sandwich_maker"))
+box0 <- plot_resource_utilization(env0, c("sandwich_maker"))
+
+grid.arrange(box1, box0, ncol = 2)
+
+```
+
+> It seems after adding resources, the ultilization of sandwich makers decrease from close 100% to about 45%. 
+
+```{r}
+
+u1 <- plot_resource_utilization(env0, c("order_taker")) + ggtitle("Utilization: Order Taker")
+u2 <- plot_resource_utilization(env0, c("cashier")) + ggtitle("Utilization: Cashier")
+
+grid.arrange(u1, u2, ncol = 2)
+
+```
+
+
+
+How much improvement does this make on wait time? 
+
+```{r}
+
+line1 <- plot_evolution_arrival_times(env1, type="waiting_time") + coord_cartesian(ylim=c(-2,82)) + scale_y_continuous(breaks = c(0,20,40,60, 80)) + ggtitle("Waiting Time Before")
+line0 <- plot_evolution_arrival_times(env0, type="waiting_time") + coord_cartesian(ylim=c(-2,82)) + scale_y_continuous(breaks = c(0,20,40,60, 80)) + ggtitle("Waiting Time After")
+
+
+grid.arrange(line1, line0, ncol = 2)
+
+
+```
+
+> After adding those two resources, the peak average wait time decrease from aout 70 mins to about 17 mins. 
+
+
+### Conclusion
+
+The reason this solution worked is that by adding two resources: order_taker and cashier, they shared the workload of the sandwich makers (order taker probably helped more). So bother the ultilization of sandwich makers and customer wait time all decreased. 
+
